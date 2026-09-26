@@ -155,6 +155,12 @@
   .check { width: 22px; height: 22px; accent-color: var(--done); margin: 0; cursor: pointer; }
   .count-line { font-size: 14px; color: var(--muted); }
   .count-line b { color: var(--text); }
+  .nfc { display: grid; gap: 8px; }
+  #nfcBtn.on { border-color: var(--done); color: var(--done); background: var(--done-soft); }
+  .nfc-status { font-size: 14px; padding: 10px 12px; border-radius: 10px; background: var(--done-soft); color: #BFF0D6; }
+  .nfc-link { display: grid; gap: 8px; padding: 12px; border-radius: 10px; border: 1px solid var(--amber); background: var(--phase-soft); font-size: 14px; }
+  .nfc-link-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; }
+  select { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-height: 40px; width: 100%; }
 
   /* ---------- Roast ---------- */
   body.no-roasts #roastBtn, body.no-roasts .fire { display: none; }
@@ -271,6 +277,19 @@
       <div class="section-head" style="margin-bottom:0">
         <h2 id="rosterTitle">Roster</h2>
         <div class="count-line" id="countLine"></div>
+      </div>
+      <div class="nfc" id="nfcRow" hidden>
+        <button class="btn small" id="nfcBtn">📶 Start NFC check-in</button>
+        <div class="nfc-status" id="nfcStatus" role="status" aria-live="polite" hidden></div>
+        <div class="nfc-link" id="nfcLink" hidden>
+          <div><b>New tag.</b> Who does it belong to?</div>
+          <div class="nfc-link-row">
+            <select id="nfcWho" aria-label="Wrestler for this tag"></select>
+            <button class="btn small" id="nfcSave">Link</button>
+            <button class="btn small ghost" id="nfcCancel">Skip</button>
+          </div>
+        </div>
+        <button class="btn small ghost" id="nfcClearBtn" hidden>Start fresh: mark everyone not here</button>
       </div>
       <div class="sample-note" id="sampleNote" hidden>
         <span>This is an example roster. Clear it and add your wrestlers.</span>
@@ -575,9 +594,10 @@
     const list = S.wrestlers.slice().sort((a, b) => a.name.localeCompare(b.name));
     $('roster').innerHTML = list.map(w => {
       const stats = S.round ? w.bouts + ' bout' + (w.bouts === 1 ? '' : 's') + ' · rested ' + w.sits + '×' : (w.present ? 'Here today' : 'Not here today');
+      const tagged = w.tag ? ' · 📶 tag' : '';
       return '<li class="' + (w.present ? '' : 'out') + '" data-id="' + w.id + '">' +
         '<input type="checkbox" class="check" id="here-' + w.id + '" data-act="here" ' + (w.present ? 'checked' : '') + ' aria-label="' + esc(w.name) + ' is here today">' +
-        '<label class="who" for="here-' + w.id + '"><b>' + esc(w.name) + '</b><small>' + stats + '</small></label>' +
+        '<label class="who" for="here-' + w.id + '"><b>' + esc(w.name) + '</b><small>' + stats + tagged + '</small></label>' +
         '<span class="wt">' + (w.weight != null ? w.weight + ' lb' : '') + '</span>' +
         '<button class="fire" data-act="roast" aria-label="Roast ' + esc(w.name) + '" title="Roast ' + esc(w.name) + '">🔥</button>' +
         '<button class="x" data-act="del" aria-label="Remove ' + esc(w.name) + '">×</button></li>';
@@ -751,6 +771,108 @@
     roast(null, { queue: true, delay: useHorn() ? 1500 : 150 });
   }
 
+  /* ---------- NFC check-in (Web NFC: Chrome on Android) ---------- */
+  // Each wrestler can own one tag, stored by the tag's serial number. Tap a known tag = checked in.
+  // Tap an unknown tag = pick who it belongs to.
+  const nfcOK = 'NDEFReader' in window;
+  let nfcAbort = null, nfcPending = null, nfcLastTag = null, nfcLastAt = 0;
+
+  function setPresent(w, on) {
+    w.present = on;
+    // Someone coming back shouldn't be first in line to rest again.
+    if (on && S.round) { const others = present().filter(x => x !== w); if (others.length) { w.sits = Math.max(w.sits, Math.min(...others.map(x => x.sits))); w.lastSat = Math.max(w.lastSat, S.round); } }
+  }
+  function nfcStatus(msg) { const el = $('nfcStatus'); el.textContent = msg; el.hidden = !msg; }
+  function tagKey(e) {
+    if (e.serialNumber) return 'sn:' + e.serialNumber.toLowerCase();
+    // Some tags hide their serial; fall back to whatever is written on them.
+    try {
+      for (const r of e.message.records) {
+        const txt = r.data ? new TextDecoder(r.encoding || 'utf-8').decode(r.data) : '';
+        if (txt) return 'tx:' + txt;
+      }
+    } catch (x) { }
+    return null;
+  }
+  function checkIn(w) {
+    const was = w.present;
+    if (!was) { setPresent(w, true); rosterChanged(); }
+    buzz(was ? [60, 60, 60] : 150);
+    nfcStatus((was ? '\u2714 ' + w.name + ' was already checked in' : '\u2705 ' + w.name + ' checked in') + ' \u00b7 ' + present().length + ' here. Tap the next tag.');
+    if (was) return;
+    say(w.name + ' is here.');
+    if (S.settings.roasts) roast(w.id, { queue: true });
+  }
+  function onTag(key) {
+    if (!key) { nfcStatus('Couldn\u2019t read that tag. Try holding it still against the back of the phone.'); return; }
+    // A tag held against the phone fires over and over; ignore repeats for a few seconds.
+    const now = Date.now();
+    if (key === nfcLastTag && now - nfcLastAt < 4000) return;
+    nfcLastTag = key; nfcLastAt = now;
+    const w = S.wrestlers.find(x => x.tag === key);
+    if (w) { $('nfcLink').hidden = true; nfcPending = null; checkIn(w); return; }
+    if (!S.wrestlers.length) { nfcStatus('Add wrestlers to the roster before linking tags.'); return; }
+    nfcPending = key;
+    const list = S.wrestlers.slice().sort((a, b) => (!!a.tag - !!b.tag) || a.name.localeCompare(b.name));
+    $('nfcWho').innerHTML = list.map(x => '<option value="' + x.id + '">' + esc(x.name) + (x.tag ? ' (replace tag)' : '') + '</option>').join('');
+    $('nfcLink').hidden = false;
+    buzz([40, 40, 40, 40, 40]);
+    nfcStatus('');
+  }
+  async function nfcStart() {
+    try {
+      const reader = new NDEFReader();
+      nfcAbort = new AbortController();
+      await reader.scan({ signal: nfcAbort.signal });
+      reader.onreading = (e) => onTag(tagKey(e));
+      reader.onreadingerror = () => nfcStatus('Couldn\u2019t read that tag. Try again, holding it still.');
+      $('nfcBtn').textContent = 'Stop check-in';
+      $('nfcBtn').classList.add('on');
+      $('nfcClearBtn').hidden = false;
+      nfcStatus('Ready. Tap a tag on the back of the phone.');
+      keepAwake();
+    } catch (err) {
+      nfcAbort = null;
+      const n = err && err.name;
+      nfcStatus(n === 'NotAllowedError' ? 'NFC permission was blocked. Allow it for this site in Chrome\u2019s site settings.'
+        : n === 'NotSupportedError' || n === 'NotReadableError' ? 'NFC looks turned off. Switch it on in the phone\u2019s settings (Connected devices \u2192 NFC) and try again.'
+          : 'Couldn\u2019t start NFC: ' + ((err && err.message) || n || 'unknown error'));
+    }
+  }
+  function nfcStop() {
+    if (nfcAbort) { try { nfcAbort.abort(); } catch (x) { } }
+    nfcAbort = null; nfcPending = null;
+    $('nfcBtn').textContent = '\uD83D\uDCF6 Start NFC check-in';
+    $('nfcBtn').classList.remove('on');
+    $('nfcLink').hidden = true; $('nfcClearBtn').hidden = true;
+    nfcStatus('');
+  }
+  if (nfcOK) {
+    $('nfcRow').hidden = false;
+    $('nfcBtn').addEventListener('click', () => { audio(); nfcAbort ? nfcStop() : nfcStart(); });
+    $('nfcSave').addEventListener('click', () => {
+      const w = byId($('nfcWho').value); if (!w || !nfcPending) return;
+      for (const x of S.wrestlers) if (x.tag === nfcPending) x.tag = null;   // a tag belongs to one wrestler
+      w.tag = nfcPending; nfcPending = null; $('nfcLink').hidden = true;
+      save(); checkIn(w); renderRoster();
+      nfcStatus('\uD83D\uDD17 Tag linked to ' + w.name + '. ' + $('nfcStatus').textContent);
+    });
+    $('nfcCancel').addEventListener('click', () => { nfcPending = null; $('nfcLink').hidden = true; nfcStatus('Skipped. Tap the next tag.'); });
+    let clearArmed = null;
+    const clearLabel = 'Start fresh: mark everyone not here';
+    $('nfcClearBtn').addEventListener('click', (e) => {
+      const b = e.currentTarget;
+      if (!clearArmed) {
+        b.classList.add('danger-armed'); b.textContent = 'Tap again to mark everyone not here';
+        clearArmed = setTimeout(() => { clearArmed = null; b.classList.remove('danger-armed'); b.textContent = clearLabel; }, 3500);
+        return;
+      }
+      clearTimeout(clearArmed); clearArmed = null; b.classList.remove('danger-armed'); b.textContent = clearLabel;
+      for (const w of S.wrestlers) w.present = false;
+      nfcLastTag = null; rosterChanged(); nfcStatus('Everyone marked not here. Tap tags to check in.');
+    });
+  }
+
   /* ---------- Events ---------- */
   $('roastBtn').addEventListener('click', () => roast());
   $('roastToggle').addEventListener('change', (e) => { S.settings.roasts = e.target.checked; if (!e.target.checked) $('roastCard').hidden = true; save(); renderSettings(); });
@@ -844,9 +966,7 @@
   $('roster').addEventListener('change', (e) => {
     if (e.target.dataset.act !== 'here') return;
     const w = byId(e.target.closest('li').dataset.id); if (!w) return;
-    w.present = e.target.checked;
-    // Someone coming back shouldn't be first in line to rest again.
-    if (w.present && S.round) { const others = present().filter(x => x !== w); if (others.length) { w.sits = Math.max(w.sits, Math.min(...others.map(x => x.sits))); w.lastSat = Math.max(w.lastSat, S.round); } }
+    setPresent(w, e.target.checked);
     rosterChanged();
   });
   $('roster').addEventListener('click', (e) => {
