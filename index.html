@@ -155,6 +155,37 @@
   .check { width: 22px; height: 22px; accent-color: var(--done); margin: 0; cursor: pointer; }
   .count-line { font-size: 14px; color: var(--muted); }
   .count-line b { color: var(--text); }
+  .checkin-btns { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+  .overlay { position: fixed; inset: 0; z-index: 30; background: rgba(6, 9, 14, .86); display: grid; place-items: start center; overflow-y: auto;
+    padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px calc(env(safe-area-inset-bottom, 0px) + 16px); }
+  .ov-panel { width: min(520px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 12px; }
+  .ov-panel.wide { width: min(980px, 100%); }
+  .ov-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .ov-head .head-btns { margin-left: auto; }
+  .ov-hint { margin: 0; font-size: 14px; color: var(--muted); }
+  .cam { position: relative; aspect-ratio: 1; border-radius: 12px; overflow: hidden; background: #000; }
+  .cam video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cam-frame { position: absolute; inset: 14%; border: 3px solid rgba(255, 255, 255, .85); border-radius: 16px; box-shadow: 0 0 0 999px rgba(0, 0, 0, .35); transition: border-color .15s; pointer-events: none; }
+  .cam-frame.hit { border-color: var(--done); }
+  .qr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+  .qr-card { background: #fff; color: #0E131D; border: 0; border-radius: 12px; padding: 12px 12px 10px; display: grid; gap: 6px; justify-items: center; font: inherit; cursor: pointer; }
+  .qr-card svg, .qr-big svg { width: 100%; height: auto; display: block; }
+  .qr-card b { font-family: var(--label); font-size: 18px; font-weight: 700; line-height: 1.1; overflow-wrap: anywhere; text-align: center; }
+  .qr-card small { font-size: 12px; color: #5B6577; }
+  .qr-big { position: fixed; inset: 0; z-index: 40; background: #fff; color: #0E131D; display: grid; place-content: center; justify-items: center; gap: 14px; padding: 24px; cursor: pointer; }
+  .qr-big .qr-box { width: min(82vw, 70vh); }
+  .qr-big b { font-family: var(--display); font-size: clamp(32px, 9vw, 64px); font-weight: 900; text-transform: uppercase; letter-spacing: .03em; text-align: center; }
+  .qr-big small { color: #5B6577; font-size: 14px; }
+  @media print {
+    @page { margin: 12mm; }
+    html, body { background: #fff !important; }
+    body > *:not(#qrCards) { display: none !important; }
+    #qrCards { position: static; background: #fff; padding: 0; overflow: visible; display: block !important; }
+    #qrCards .ov-panel { width: 100%; border: 0; padding: 0; background: #fff; }
+    #qrCards .ov-head, #qrCards .ov-hint { display: none; }
+    .qr-grid { grid-template-columns: repeat(3, 1fr); gap: 8mm; }
+    .qr-card { border: 1px dashed #999; break-inside: avoid; }
+  }
   .nfc { display: grid; gap: 8px; }
   #nfcBtn.on { border-color: var(--done); color: var(--done); background: var(--done-soft); }
   .nfc-status { font-size: 14px; padding: 10px 12px; border-radius: 10px; background: var(--done-soft); color: #BFF0D6; }
@@ -278,6 +309,10 @@
         <h2 id="rosterTitle">Roster</h2>
         <div class="count-line" id="countLine"></div>
       </div>
+      <div class="checkin-btns">
+        <button class="btn small" id="qrScanBtn">📷 Scan QR check-in</button>
+        <button class="btn small ghost" id="qrCardsBtn">QR codes</button>
+      </div>
       <div class="nfc" id="nfcRow" hidden>
         <button class="btn small" id="nfcBtn">📶 Start NFC check-in</button>
         <div class="nfc-status" id="nfcStatus" role="status" aria-live="polite" hidden></div>
@@ -312,6 +347,40 @@
   </aside>
 </div>
 
+<div class="overlay" id="qrScan" role="dialog" aria-modal="true" aria-labelledby="qrScanTitle" hidden>
+  <div class="ov-panel">
+    <div class="ov-head">
+      <h2 id="qrScanTitle">QR check-in</h2>
+      <button class="btn small" id="qrScanClose">Done</button>
+    </div>
+    <div class="cam"><video id="qrVideo" playsinline muted></video><div class="cam-frame" id="qrFrame"></div></div>
+    <div class="nfc-status" id="qrStatus" role="status" aria-live="polite">Point the camera at a wrestler’s QR code.</div>
+    <div class="nfc-link" id="qrAdd" hidden>
+      <div><b id="qrAddName"></b> isn’t on this roster yet.</div>
+      <div class="nfc-link-row" style="grid-template-columns: 1fr auto">
+        <button class="btn small" id="qrAddYes">Add and check in</button>
+        <button class="btn small ghost" id="qrAddNo">Skip</button>
+      </div>
+    </div>
+    <button class="btn small ghost" id="qrClearBtn">Start fresh: mark everyone not here</button>
+  </div>
+</div>
+
+<div class="overlay" id="qrCards" role="dialog" aria-modal="true" aria-labelledby="qrCardsTitle" hidden>
+  <div class="ov-panel wide">
+    <div class="ov-head">
+      <h2 id="qrCardsTitle">QR codes</h2>
+      <div class="head-btns">
+        <button class="btn small" id="qrPrintBtn">Print</button>
+        <button class="btn small ghost" id="qrCardsClose">Close</button>
+      </div>
+    </div>
+    <p class="ov-hint">Tap a code to show it full screen, so a wrestler can screenshot it. Or print the sheet, cut the cards out and tape them to gear.</p>
+    <div class="qr-grid" id="qrGrid"></div>
+  </div>
+</div>
+<div class="qr-big" id="qrBig" hidden></div>
+
 <div class="roast-card" id="roastCard" role="status" aria-live="polite" hidden>
   <div class="eyebrow" id="roastWho">Roast</div>
   <div class="roast-line" id="roastLine"></div>
@@ -322,6 +391,7 @@
   </div>
 </div>
 
+<script src="qrcode.js"></script>
 <script>
 (function () {
   const KEY = 'matclock.v1';
@@ -774,7 +844,9 @@
   /* ---------- NFC check-in (Web NFC: Chrome on Android) ---------- */
   // Each wrestler can own one tag, stored by the tag's serial number. Tap a known tag = checked in.
   // Tap an unknown tag = pick who it belongs to.
-  const nfcOK = 'NDEFReader' in window;
+  // Switched off for now (QR check-in replaced it). Set to true to bring the NFC button back.
+  const NFC_ENABLED = false;
+  const nfcOK = NFC_ENABLED && 'NDEFReader' in window;
   let nfcAbort = null, nfcPending = null, nfcLastTag = null, nfcLastAt = 0;
 
   function setPresent(w, on) {
@@ -798,10 +870,12 @@
     const was = w.present;
     if (!was) { setPresent(w, true); rosterChanged(); }
     buzz(was ? [60, 60, 60] : 150);
-    nfcStatus((was ? '\u2714 ' + w.name + ' was already checked in' : '\u2705 ' + w.name + ' checked in') + ' \u00b7 ' + present().length + ' here. Tap the next tag.');
-    if (was) return;
-    say(w.name + ' is here.');
-    if (S.settings.roasts) roast(w.id, { queue: true });
+    const msg = (was ? '\u2714 ' + w.name + ' was already checked in' : '\u2705 ' + w.name + ' checked in') + ' \u00b7 ' + present().length + ' here.';
+    if (!was) {
+      say(w.name + ' is here.');
+      if (S.settings.roasts) roast(w.id, { queue: true });
+    }
+    return { was, msg };
   }
   function onTag(key) {
     if (!key) { nfcStatus('Couldn\u2019t read that tag. Try holding it still against the back of the phone.'); return; }
@@ -810,7 +884,7 @@
     if (key === nfcLastTag && now - nfcLastAt < 4000) return;
     nfcLastTag = key; nfcLastAt = now;
     const w = S.wrestlers.find(x => x.tag === key);
-    if (w) { $('nfcLink').hidden = true; nfcPending = null; checkIn(w); return; }
+    if (w) { $('nfcLink').hidden = true; nfcPending = null; nfcStatus(checkIn(w).msg + ' Tap the next tag.'); return; }
     if (!S.wrestlers.length) { nfcStatus('Add wrestlers to the roster before linking tags.'); return; }
     nfcPending = key;
     const list = S.wrestlers.slice().sort((a, b) => (!!a.tag - !!b.tag) || a.name.localeCompare(b.name));
@@ -854,8 +928,8 @@
       const w = byId($('nfcWho').value); if (!w || !nfcPending) return;
       for (const x of S.wrestlers) if (x.tag === nfcPending) x.tag = null;   // a tag belongs to one wrestler
       w.tag = nfcPending; nfcPending = null; $('nfcLink').hidden = true;
-      save(); checkIn(w); renderRoster();
-      nfcStatus('\uD83D\uDD17 Tag linked to ' + w.name + '. ' + $('nfcStatus').textContent);
+      save(); const r = checkIn(w); renderRoster();
+      nfcStatus('\uD83D\uDD17 Tag linked to ' + w.name + '. ' + r.msg + ' Tap the next tag.');
     });
     $('nfcCancel').addEventListener('click', () => { nfcPending = null; $('nfcLink').hidden = true; nfcStatus('Skipped. Tap the next tag.'); });
     let clearArmed = null;
@@ -872,6 +946,117 @@
       nfcLastTag = null; rosterChanged(); nfcStatus('Everyone marked not here. Tap tags to check in.');
     });
   }
+
+  /* ---------- QR check-in ---------- */
+  // A wrestler's code is just their name (plus weight), so the same printed card works on any coach's phone.
+  const QR_PREFIX = 'MATCLOCK:';
+  if (window.qrcode && qrcode.stringToBytesFuncs) qrcode.stringToBytes = qrcode.stringToBytesFuncs['UTF-8'];
+  const qrPayload = (w) => QR_PREFIX + w.name + (w.weight != null ? '|' + w.weight : '');
+  function qrParse(raw) {
+    if (!raw || raw.slice(0, QR_PREFIX.length).toUpperCase() !== QR_PREFIX) return null;
+    const m = raw.slice(QR_PREFIX.length).match(/^(.*?)(?:\|(\d+(?:\.\d+)?))?$/);
+    const name = m && m[1].trim();
+    return name ? { name, weight: m[2] ? Number(m[2]) : null } : null;
+  }
+  function qrSvg(text) {
+    const q = qrcode(0, 'M'); q.addData(text); q.make();
+    return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+  }
+  const norm = (n) => n.trim().toLowerCase().replace(/\s+/g, ' ');
+
+  function renderQrCards() {
+    const list = S.wrestlers.slice().sort((a, b) => a.name.localeCompare(b.name));
+    $('qrGrid').innerHTML = list.length ? list.map(w =>
+      '<button class="qr-card" data-id="' + w.id + '">' + qrSvg(qrPayload(w)) + '<b>' + esc(w.name) + '</b>' + (w.weight != null ? '<small>' + w.weight + ' lb</small>' : '') + '</button>').join('')
+      : '<div class="empty">Add wrestlers to the roster to make their codes.</div>';
+  }
+  $('qrCardsBtn').addEventListener('click', () => { renderQrCards(); $('qrCards').hidden = false; });
+  $('qrCardsClose').addEventListener('click', () => { $('qrCards').hidden = true; });
+  $('qrPrintBtn').addEventListener('click', () => window.print());
+  $('qrGrid').addEventListener('click', (e) => {
+    const c = e.target.closest('.qr-card'); if (!c) return;
+    const w = byId(c.dataset.id); if (!w) return;
+    $('qrBig').innerHTML = '<div class="qr-box">' + qrSvg(qrPayload(w)) + '</div><b>' + esc(w.name) + '</b><small>Screenshot this, then tap anywhere to close</small>';
+    $('qrBig').hidden = false;
+  });
+  $('qrBig').addEventListener('click', () => { $('qrBig').hidden = true; });
+
+  // Scanning uses the browser's built-in QR reader (Chrome on Android), so nothing extra loads.
+  let qrStream = null, qrTimer = null, qrDetector = null, qrLast = null, qrLastAt = 0, qrPendingAdd = null;
+  function qrStatus(msg) { $('qrStatus').textContent = msg; }
+  function qrFlash() { const f = $('qrFrame'); f.classList.add('hit'); setTimeout(() => f.classList.remove('hit'), 450); }
+  function onQr(raw) {
+    const now = Date.now();
+    if (raw === qrLast && now - qrLastAt < 4000) return;   // the same code stays in view for a while
+    qrLast = raw; qrLastAt = now;
+    const info = qrParse(raw);
+    if (!info) { qrStatus('That QR code isn\u2019t a Mat Clock card.'); buzz([40, 40, 40]); return; }
+    qrFlash(); pip();
+    const w = S.wrestlers.find(x => norm(x.name) === norm(info.name));
+    if (w) { $('qrAdd').hidden = true; qrPendingAdd = null; qrStatus(checkIn(w).msg + ' Scan the next code.'); return; }
+    qrPendingAdd = info; $('qrAddName').textContent = info.name; $('qrAdd').hidden = false;
+    qrStatus('New wrestler.'); buzz([40, 40, 40, 40, 40]);
+  }
+  async function qrOpen() {
+    audio();
+    $('qrScan').hidden = false; $('qrAdd').hidden = true; qrLast = null;
+    if (!('BarcodeDetector' in window)) { qrStatus('This browser can\u2019t read QR codes. Use Chrome on Android.'); return; }
+    try {
+      const formats = await BarcodeDetector.getSupportedFormats();
+      if (!formats.includes('qr_code')) { qrStatus('This browser can\u2019t read QR codes. Use Chrome on Android.'); return; }
+      qrDetector = new BarcodeDetector({ formats: ['qr_code'] });
+      qrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      if ($('qrScan').hidden) { qrStop(); return; }   // closed while the camera was starting
+      const v = $('qrVideo'); v.srcObject = qrStream; await v.play();
+      qrStatus('Point the camera at a wrestler\u2019s QR code.');
+      keepAwake();
+      let busy = false;
+      qrTimer = setInterval(async () => {
+        if (busy || v.readyState < 2) return; busy = true;
+        try { const codes = await qrDetector.detect(v); if (codes.length) onQr(codes[0].rawValue); } catch (e) { }
+        busy = false;
+      }, 200);
+    } catch (err) {
+      const n = err && err.name;
+      qrStatus(n === 'NotAllowedError' ? 'Camera permission was blocked. Allow the camera for this site in Chrome\u2019s site settings.'
+        : n === 'NotFoundError' ? 'No camera found on this device.'
+          : 'Couldn\u2019t start the camera: ' + ((err && err.message) || n || 'unknown error'));
+    }
+  }
+  function qrStop() {
+    clearInterval(qrTimer); qrTimer = null;
+    if (qrStream) { qrStream.getTracks().forEach(t => t.stop()); qrStream = null; }
+    $('qrVideo').srcObject = null;
+  }
+  $('qrScanBtn').addEventListener('click', qrOpen);
+  $('qrScanClose').addEventListener('click', () => { qrStop(); $('qrScan').hidden = true; qrPendingAdd = null; });
+  $('qrAddYes').addEventListener('click', () => {
+    if (!qrPendingAdd) return;
+    addWrestler(qrPendingAdd.name, qrPendingAdd.weight);
+    const w = S.wrestlers[S.wrestlers.length - 1]; w.present = false;
+    S.sample = false; qrPendingAdd = null; $('qrAdd').hidden = true;
+    qrStatus('\u2795 Added. ' + checkIn(w).msg + ' Scan the next code.');
+  });
+  $('qrAddNo').addEventListener('click', () => { qrPendingAdd = null; $('qrAdd').hidden = true; qrStatus('Skipped. Scan the next code.'); });
+  let qrClearArmed = null;
+  const qrClearLabel = 'Start fresh: mark everyone not here';
+  $('qrClearBtn').addEventListener('click', (e) => {
+    const b = e.currentTarget;
+    if (!qrClearArmed) {
+      b.classList.add('danger-armed'); b.textContent = 'Tap again to mark everyone not here';
+      qrClearArmed = setTimeout(() => { qrClearArmed = null; b.classList.remove('danger-armed'); b.textContent = qrClearLabel; }, 3500);
+      return;
+    }
+    clearTimeout(qrClearArmed); qrClearArmed = null; b.classList.remove('danger-armed'); b.textContent = qrClearLabel;
+    for (const w of S.wrestlers) w.present = false;
+    qrLast = null; rosterChanged(); qrStatus('Everyone marked not here. Scan codes to check in.');
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (!$('qrBig').hidden) $('qrBig').hidden = true;
+    else if (!$('qrCards').hidden) $('qrCards').hidden = true;
+    else if (!$('qrScan').hidden) $('qrScanClose').click();
+  });
 
   /* ---------- Events ---------- */
   $('roastBtn').addEventListener('click', () => roast());

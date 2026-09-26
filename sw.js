@@ -9,7 +9,8 @@ const APP_SHELL = [
   './icons/icon-512.png',
   './icons/maskable-512.png',
   './icons/apple-touch-icon.png',
-  './icons/favicon-48.png'
+  './icons/favicon-48.png',
+  './qrcode.js'
 ];
 const FONT_CACHE = 'matclock-fonts';
 
