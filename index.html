@@ -143,7 +143,7 @@
   .bulk { display: grid; gap: 8px; }
   .sample-note { font-size: 14px; color: var(--muted); display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px; background: var(--phase-soft); }
   .roster { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-  .roster li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--line); }
+  .roster li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto;align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--line); }
   .roster li:last-child { border-bottom: 0; }
   .roster li.out .who { opacity: .45; text-decoration: line-through; }
   .roster .who { min-width: 0; }
@@ -156,7 +156,23 @@
   .count-line { font-size: 14px; color: var(--muted); }
   .count-line b { color: var(--text); }
 
+  /* ---------- Roast ---------- */
+  .head-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn.roast { border-color: rgba(255, 120, 40, .5); color: #FFB27A; }
+  .btn.roast:hover { border-color: #FF7A28; background: rgba(255, 122, 40, .12); }
+  .fire { width: 34px; height: 34px; border-radius: 8px; border: 1px solid transparent; background: transparent; font-size: 17px; line-height: 1; filter: grayscale(.6); }
+  .fire:hover { border-color: var(--line); filter: none; }
+  .roast-card { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); transform: translateX(-50%); width: min(560px, calc(100% - 32px)); z-index: 20;
+    background: linear-gradient(160deg, #2A1712, var(--panel) 60%); border: 1px solid #FF7A28; border-radius: 14px; padding: 16px 18px; display: grid; gap: 10px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.55), 0 0 0 4px rgba(255,122,40,.12); animation: roastIn .28s cubic-bezier(.2,.9,.3,1.3); }
+  @keyframes roastIn { from { opacity: 0; transform: translate(-50%, 24px) scale(.96); } }
+  .roast-card .eyebrow { color: #FF9A5A; }
+  .roast-line { font-family: var(--label); font-weight: 600; font-size: 22px; line-height: 1.25; text-wrap: pretty; }
+  .roast-line b { color: #FFB27A; font-weight: 700; }
+  .roast-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+
   @media (max-width: 520px) {
+    .roast-line { font-size: 19px; }
     .controls { grid-template-columns: 1fr 1fr; }
     .controls .primary { grid-column: 1 / -1; }
     .board-top { padding: 12px 14px 0; }
@@ -197,7 +213,10 @@
           <div class="eyebrow" id="lineupEyebrow">Round 1 matchups</div>
           <h2 id="lineupTitle">Pairings</h2>
         </div>
-        <button class="btn small ghost" id="shuffleBtn">Reshuffle partners</button>
+        <div class="head-btns">
+          <button class="btn small roast" id="roastBtn" title="Roast a random wrestler">🔥 Roast someone</button>
+          <button class="btn small ghost" id="shuffleBtn">Reshuffle partners</button>
+        </div>
       </div>
       <div class="mats" id="mats"></div>
       <div class="rotation" id="rotation" hidden></div>
@@ -267,6 +286,16 @@
       <ul class="roster" id="roster"></ul>
     </section>
   </aside>
+</div>
+
+<div class="roast-card" id="roastCard" role="status" aria-live="polite" hidden>
+  <div class="eyebrow" id="roastWho">Roast</div>
+  <div class="roast-line" id="roastLine"></div>
+  <div class="roast-actions">
+    <button class="btn small ghost" id="roastClose">Mercy</button>
+    <button class="btn small roast" id="roastAgain">Hit them again</button>
+    <button class="btn small roast" id="roastNext">Roast someone else</button>
+  </div>
 </div>
 
 <script>
@@ -543,6 +572,7 @@
         '<input type="checkbox" class="check" id="here-' + w.id + '" data-act="here" ' + (w.present ? 'checked' : '') + ' aria-label="' + esc(w.name) + ' is here today">' +
         '<label class="who" for="here-' + w.id + '"><b>' + esc(w.name) + '</b><small>' + stats + '</small></label>' +
         '<span class="wt">' + (w.weight != null ? w.weight + ' lb' : '') + '</span>' +
+        '<button class="fire" data-act="roast" aria-label="Roast ' + esc(w.name) + '" title="Roast ' + esc(w.name) + '">🔥</button>' +
         '<button class="x" data-act="del" aria-label="Remove ' + esc(w.name) + '">×</button></li>';
     }).join('');
     const here = present().length;
@@ -575,7 +605,142 @@
   let noticeT;
   function showNotice(msg) { const n = $('notice'); n.textContent = msg; n.hidden = false; clearTimeout(noticeT); noticeT = setTimeout(() => { n.hidden = true; }, 5000); }
 
+  /* ---------- Roasts ---------- */
+  // Tokens: {n} target, {w} their weight, {p} current/next partner, {o} random teammate, {ow} that teammate's weight,
+  // {hv}/{hw} a heavier teammate + weight, {lt}/{lw} a lighter teammate + weight, {b} bouts today, {s} rests today.
+  // A line only shows up when every token it uses has real data behind it. Objects can add an extra `if` check.
+  const ROASTS = [
+    '{n} pulled guard once. The guard filed a restraining order.',
+    '{n}, your closed guard is less of a guard and more of an open invitation.',
+    '{n} thinks a triangle choke is something from geometry class.',
+    '{n}, you tap so fast the gym had to install a speed limit.',
+    'The only thing {n} has ever submitted is a late homework assignment.',
+    '{n}, your rear naked choke is so gentle people keep mistaking it for a hug.',
+    '{n} has been stuck in half guard so long the mail comes there now.',
+    '{n}, you shrimp like a shrimp that’s already been cooked.',
+    '{n}, your kimura grip couldn’t open a jar of pickles.',
+    '{n} calls it “playing guard.” Everyone else calls it “lying there.”',
+    '{n}, your berimbolo looks like someone falling down the stairs with confidence.',
+    '{n} passes guard at the speed of a DMV line.',
+    'The grappling dummy in the corner has more submissions than {n}.',
+    '{n} has a black belt. In tapping.',
+    '{n}, your heel hook is less “leg lock” and more “foot massage.”',
+    '{n}, your guillotine couldn’t choke a sandwich.',
+    '{n} has the hip escape of a filing cabinet.',
+    '{n}, you’re not bad at jiu jitsu. You’re just extremely generous with submissions.',
+    '{n}’s neck has been choked so often it has a loyalty card.',
+    '{n}, your mount escape plan is “wait for the round to end.”',
+    '{n}, your armbar has all the squeeze of a wet noodle.',
+    'When {n} flow rolls, it looks like a fish learning about gravity.',
+    '{n}’s game plan: get taken down, get passed, get tapped, get water.',
+    '{n}, you spend so much time flat on your back the mat thinks you’re part of it.',
+    '{n}, your jiu jitsu is like gas-station Wi-Fi: weak, unreliable, and it drops the second anyone gets close.',
+    '{n} watched one YouTube instructional and has been confidently wrong ever since.',
+    '{n}, your technique is so sloppy the mat asked to be cleaned twice.',
+    '{n}, your “defense” is technically just a very slow tap.',
+    'Somebody tell {n} that “side control” means you’re supposed to be the one on top.',
+    '{n}, even your stripes look like they’re trying to get away from you.',
+    'Scouting report on {n}: slippery as sandpaper, dangerous as a pillow.',
+    '{n} has only ever swept one thing, and it was the gym floor.',
+    '{n}, your top pressure feels like a weighted blanket. Relaxing, but not a threat.',
+    'Coaches use {n}’s roll footage to teach what “not that” means.',
+    '{n}, the only choke you’ve ever landed is on your cardio.',
+    '{n} practices escapes at home by escaping practice.',
+    '{n}, your leg locks are so loose the leg just walks out on its own.',
+    '{n} got caught in an Ezekiel choke and asked which chapter it was from.',
+    '{n}, your grips have the strength of a toddler holding a balloon.',
+    '{n}, you don’t roll. You’re rolled.',
+    // weight
+    '{n}, that’s {w} pounds and every single one of them is in the wrong position.',
+    '{n}, {w} pounds of pressure and somehow none of it lands on your opponent.',
+    '{n} weighs {w} pounds and still plays guard like a folding chair.',
+    '{n}, at {w} pounds you’re not heavy on top. You’re just heavy on the floor.',
+    // partner
+    '{p} is going to armbar {n} so many times this round that {n} should just leave the arm on the mat.',
+    'Good news, {n}: {p} promised to go easy. Bad news: that was the easy version.',
+    '{n} vs. {p}. One of these people is about to learn something, and it’s {n}.',
+    '{p}, please return {n} in the same condition you found them. Or at least most of them.',
+    '{n}, {p} calls this a warm-up. You call it a near-death experience.',
+    // teammates
+    '{o} has tapped {n} so many times {o} started a punch card. One more and it’s a free smoothie.',
+    '{n}’s game plan against {o}: survive, apologize, ice.',
+    'Ask {o} about rolling with {n}. {o} will just laugh and walk away.',
+    '{n} and {o} had a scramble. {o} is still waiting for it to be competitive.',
+    '{n} tried to take {o}’s back and ended up giving {o} a piggyback ride.',
+    // weight vs. teammates
+    { t: '{lt} weighs {lw} and still mounted {n} like a pony ride.', if: c => c.w - c.lw >= 5 },
+    { t: '{n} and {hv} weigh exactly the same. Only one of them knows what an underhook is, and it’s {hv}.', if: c => c.hw === c.w },
+    { t: '{n} gives up {hw} minus {w}… carry the one… a whole lot of pounds to {hv}. The math says run.', if: c => c.hw - c.w >= 10 },
+    { t: '{n} outweighs {lt} and still got flattened. That’s not a weight class, that’s a pancake class.', if: c => c.w - c.lw >= 5 },
+    // stats
+    { t: '{n}, {b} rounds today and zero submissions. That’s not a slump, that’s a lifestyle.', if: c => c.b >= 2 },
+    { t: '{n} has rested {s} times today and still looks tired. Honestly impressive.', if: c => c.s >= 1 },
+    { t: '{n} is resting this round, which is also what {n} does while rolling.', if: c => c.bench },
+    { t: '{n}, that’s {b} bouts today and every one looked the same: flat on your back, counting ceiling tiles.', if: c => c.b >= 3 }
+  ].map(r => typeof r === 'string' ? { t: r } : r);
+
+  const roastRecent = [];
+  let lastRoastId = null;
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+  function roastCtx(w) {
+    let pool = present().filter(x => x.id !== w.id);
+    if (!pool.length) pool = S.wrestlers.filter(x => x.id !== w.id);
+    const lu = S.phase === 'wrestle' ? S.current : S.lineup;
+    let partner = null, bench = false;
+    if (lu) {
+      for (const [a, b] of lu.pairs) { if (a === w.id) partner = byId(b); if (b === w.id) partner = byId(a); }
+      bench = lu.bench.includes(w.id);
+    }
+    const others = pool.filter(x => !partner || x.id !== partner.id);
+    const o = others.length ? pick(others) : null;
+    const weighed = w.weight != null ? pool.filter(x => x.weight != null) : [];
+    const heavier = weighed.filter(x => x.weight >= w.weight), lighter = weighed.filter(x => x.weight < w.weight);
+    const hv = heavier.length ? pick(heavier) : null, lt = lighter.length ? pick(lighter) : null;
+    return {
+      n: w.name, w: w.weight, p: partner && partner.name, o: o && o.name, ow: o && o.weight,
+      hv: hv && hv.name, hw: hv && hv.weight, lt: lt && lt.name, lw: lt && lt.weight,
+      b: w.bouts || null, s: w.sits || null, bench
+    };
+  }
+  function roastFor(w) {
+    const c = roastCtx(w);
+    const ok = ROASTS.map((r, i) => ({ r, i })).filter(({ r }) =>
+      (r.t.match(/\{(\w+)\}/g) || []).every(tok => { const v = c[tok.slice(1, -1)]; return v !== null && v !== undefined && v !== ''; }) &&
+      (!r.if || r.if(c)));
+    let fresh = ok.filter(x => !roastRecent.includes(x.i));
+    if (!fresh.length) { roastRecent.length = 0; fresh = ok; }
+    // Personalized lines (anything beyond just the name) get double the chance.
+    const bag = [];
+    for (const x of fresh) { bag.push(x); if (/\{(?!n\})\w+\}/.test(x.r.t)) bag.push(x); }
+    const choice = pick(bag);
+    roastRecent.push(choice.i); if (roastRecent.length > 25) roastRecent.shift();
+    const fill = (wrap) => choice.r.t.replace(/\{(\w+)\}/g, (_, k) => wrap(String(c[k])));
+    return { html: fill(v => '<b>' + esc(v) + '</b>'), text: fill(v => v) };
+  }
+  function roast(id) {
+    let w = id ? byId(id) : null;
+    if (!w) {
+      let pool = present(); if (!pool.length) pool = S.wrestlers;
+      if (!pool.length) { showNotice('Add some wrestlers first. Can’t roast an empty mat.'); return; }
+      const fresh = pool.length > 1 ? pool.filter(x => x.id !== lastRoastId) : pool;
+      w = pick(fresh);
+    }
+    lastRoastId = w.id;
+    const r = roastFor(w);
+    $('roastWho').textContent = '🔥 Roasting ' + w.name;
+    $('roastLine').innerHTML = r.html;
+    const card = $('roastCard');
+    card.hidden = true; void card.offsetWidth; card.hidden = false;   // replay the pop-in animation
+    // Don't talk over the clock while a round is live.
+    if (!(running && S.phase === 'wrestle')) say(r.text);
+  }
+
   /* ---------- Events ---------- */
+  $('roastBtn').addEventListener('click', () => roast());
+  $('roastAgain').addEventListener('click', () => roast(lastRoastId));
+  $('roastNext').addEventListener('click', () => roast());
+  $('roastClose').addEventListener('click', () => { $('roastCard').hidden = true; try { speechSynthesis.cancel(); } catch (e) { } });
   function resetPractice() {
     running = false;
     for (const w of S.wrestlers) { w.sits = 0; w.lastSat = -1; w.partners = {}; w.lastPartner = null; w.bouts = 0; w.order = Math.random(); }
@@ -669,6 +834,8 @@
     rosterChanged();
   });
   $('roster').addEventListener('click', (e) => {
+    const f = e.target.closest('[data-act="roast"]');
+    if (f) { roast(f.closest('li').dataset.id); return; }
     const b = e.target.closest('[data-act="del"]'); if (!b) return;
     const id = b.closest('li').dataset.id;
     S.wrestlers = S.wrestlers.filter(w => w.id !== id);
