@@ -157,6 +157,7 @@
   .count-line b { color: var(--text); }
 
   /* ---------- Roast ---------- */
+  body.no-roasts #roastBtn, body.no-roasts .fire { display: none; }
   .head-btns { display: flex; gap: 8px; flex-wrap: wrap; }
   .btn.roast { border-color: rgba(255, 120, 40, .5); color: #FFB27A; }
   .btn.roast:hover { border-color: #FF7A28; background: rgba(255, 122, 40, .12); }
@@ -254,6 +255,10 @@
           <button id="alertHorn" aria-pressed="false">Horn</button><button id="alertVoice" aria-pressed="false">Voice</button><button id="alertBoth" aria-pressed="true">Both</button>
         </div>
       </div>
+      <div class="setting">
+        <div class="lbl">Roasts<span class="hint">Roast a random wrestler after every round</span></div>
+        <label class="toggle"><input type="checkbox" id="roastToggle" aria-label="Roasts"><span></span></label>
+      </div>
       <button class="btn small ghost" id="testAlertBtn">Test alerts</button>
       <div class="install-row" id="installRow" hidden>
         <button class="btn small" id="installBtn">Install app</button>
@@ -312,7 +317,7 @@
   function defaults() {
     const sample = [['Marcus', 126], ['Jaylen', 132], ['Tony', 132], ['Eli', 138], ['Diego', 145], ['Sam', 145], ['Owen', 152], ['Caleb', 160], ['Ray', 170]];
     return {
-      settings: { roundSec: 120, restSec: 30, rounds: 6, mode: 'mix', sound: true, alerts: 'both' },
+      settings: { roundSec: 120, restSec: 30, rounds: 6, mode: 'mix', sound: true, alerts: 'both', roasts: true },
       wrestlers: sample.map(([n, w]) => mkWrestler(n, w)),
       sample: true, round: 0, phase: 'ready', remaining: 120000, phaseTotal: 120000,
       current: null, lineup: null
@@ -325,6 +330,7 @@
 
   let S = load() || defaults();
   if (!S.settings.alerts) S.settings.alerts = 'both';
+  if (S.settings.roasts === undefined) S.settings.roasts = true;
   let running = false, endAt = 0, lastWhole = null, wakeLock = null;
 
   const byId = (id) => S.wrestlers.find(w => w.id === id);
@@ -429,11 +435,11 @@
     } catch (e) { }
   }
   if ('speechSynthesis' in window) { pickVoice(); try { speechSynthesis.onvoiceschanged = pickVoice; } catch (e) { } }
-  function say(text, delay) {
+  function say(text, delay, queue) {
     if (!S.settings.sound || !useVoice()) return;
     const go = () => {
       try {
-        speechSynthesis.cancel();
+        if (!queue) speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(text);
         if (voice) u.voice = voice;
         u.rate = 1.05; u.pitch = 1; u.volume = 1;
@@ -480,13 +486,14 @@
   function beginRound(quiet) {
     ensureLineup();
     if (!S.lineup || S.lineup.pairs.length === 0) { showNotice('Add at least two wrestlers who are here today to start.'); running = false; render(); return; }
+    $('roastCard').hidden = true;
     commit(S.lineup); startPhase('wrestle', S.settings.roundSec); if (!quiet) alerts.roundStart(); save();
   }
   function phaseEnd() {
     if (S.phase === 'wrestle') {
-      if (S.settings.rounds && S.round >= S.settings.rounds) { alerts.roundEnd(true); running = false; S.phase = 'done'; S.remaining = 0; S.lineup = null; save(); render(); return; }
+      if (S.settings.rounds && S.round >= S.settings.rounds) { alerts.roundEnd(true); running = false; S.phase = 'done'; S.remaining = 0; S.lineup = null; save(); render(); autoRoast(); return; }
       S.lineup = buildLineup();
-      if (S.settings.restSec > 0) { alerts.roundEnd(false); startPhase('rest', S.settings.restSec); }
+      if (S.settings.restSec > 0) { alerts.roundEnd(false); startPhase('rest', S.settings.restSec); autoRoast(); }
       else { if (useHorn()) horn(); buzz([500, 150, 500]); setTimeout(() => { if (S.phase === 'wrestle') alerts.roundStart(); }, 1500); beginRoundQuiet(); }
       save();
     } else if (S.phase === 'rest') { beginRound(); }
@@ -587,6 +594,8 @@
     $('modeMix').setAttribute('aria-pressed', s.mode === 'mix');
     $('modeWeight').setAttribute('aria-pressed', s.mode === 'weight');
     $('soundToggle').checked = !!s.sound;
+    $('roastToggle').checked = !!s.roasts;
+    document.body.classList.toggle('no-roasts', !s.roasts);
     for (const k of ['horn', 'voice', 'both']) $('alert' + k[0].toUpperCase() + k.slice(1)).setAttribute('aria-pressed', s.alerts === k);
   }
   function renderButtons() {
@@ -718,7 +727,8 @@
     const fill = (wrap) => choice.r.t.replace(/\{(\w+)\}/g, (_, k) => wrap(String(c[k])));
     return { html: fill(v => '<b>' + esc(v) + '</b>'), text: fill(v => v) };
   }
-  function roast(id) {
+  function roast(id, opts) {
+    opts = opts || {};
     let w = id ? byId(id) : null;
     if (!w) {
       let pool = present(); if (!pool.length) pool = S.wrestlers;
@@ -733,11 +743,17 @@
     const card = $('roastCard');
     card.hidden = true; void card.offsetWidth; card.hidden = false;   // replay the pop-in animation
     // Don't talk over the clock while a round is live.
-    if (!(running && S.phase === 'wrestle')) say(r.text);
+    if (!(running && S.phase === 'wrestle')) say(r.text, opts.delay, opts.queue);
+  }
+  // After the horn: queue the roast behind the "Time! Switch partners" call instead of cutting it off.
+  function autoRoast() {
+    if (!S.settings.roasts || !S.wrestlers.length) return;
+    roast(null, { queue: true, delay: useHorn() ? 1500 : 150 });
   }
 
   /* ---------- Events ---------- */
   $('roastBtn').addEventListener('click', () => roast());
+  $('roastToggle').addEventListener('change', (e) => { S.settings.roasts = e.target.checked; if (!e.target.checked) $('roastCard').hidden = true; save(); renderSettings(); });
   $('roastAgain').addEventListener('click', () => roast(lastRoastId));
   $('roastNext').addEventListener('click', () => roast());
   $('roastClose').addEventListener('click', () => { $('roastCard').hidden = true; try { speechSynthesis.cancel(); } catch (e) { } });
