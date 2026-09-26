@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mat Clock</title>
+<meta name="description" content="Wrestling practice round timer that pairs partners and rotates rests fairly.">
+<meta name="theme-color" content="#0E131D">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mat Clock">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/favicon-48.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  body { margin: 0; -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+  .install-row { display: grid; gap: 6px; }
+  .install-hint { font-size: 13px; color: var(--muted); }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&family=Big+Shoulders+Display:wght@700;800;900&display=swap">
+<style>
+  /* Single dark "gym scoreboard" look, chosen on purpose so it reads from across a mat room. */
+  :root {
+    color-scheme: dark;
+    --ground: #0E131D;
+    --panel: #161D2B;
+    --panel-2: #1C2536;
+    --line: #2A3549;
+    --text: #E9EDF5;
+    --muted: #8D98AE;
+    --amber: #FFB23E;
+    --mat: #D2353F;
+    --mat-soft: rgba(210, 53, 63, .16);
+    --rest: #3E92DB;
+    --rest-soft: rgba(62, 146, 219, .16);
+    --done: #3FBF7F;
+    --done-soft: rgba(63, 191, 127, .16);
+    --band-red: #E0434C;
+    --band-green: #2FAE69;
+    --phase: var(--amber);
+    --phase-soft: rgba(255, 178, 62, .12);
+    --on-phase: #0E131D;
+    --display: "Big Shoulders Display", "Oswald", "Arial Narrow", Impact, sans-serif;
+    --label: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+    --body: "Barlow", "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  html, body { background: var(--ground); color: var(--text); }
+  body { font-family: var(--body); font-size: 15px; line-height: 1.45; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding-inline: 16px; padding-block: 16px 48px; display: grid; gap: 20px; }
+  @media (min-width: 960px) {
+    .wrap { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); align-items: start; padding-block: 24px 56px; }
+    .side { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); }
+  }
+  .main, .side { display: grid; gap: 20px; min-width: 0; }
+
+  .eyebrow { font-family: var(--label); font-weight: 600; text-transform: uppercase; letter-spacing: .12em; font-size: 13px; color: var(--muted); }
+  h2 { font-family: var(--label); font-weight: 700; font-size: 20px; letter-spacing: .04em; text-transform: uppercase; margin: 0; text-wrap: balance; }
+
+  /* ---------- Scoreboard ---------- */
+  .board { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; position: relative; }
+  .board::before { content: ""; position: absolute; inset: 0; background: radial-gradient(120% 90% at 50% 0%, var(--phase-soft), transparent 70%); pointer-events: none; transition: background .4s; }
+  .board-top { position: relative; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 18px 0; flex-wrap: wrap; }
+  .brand { font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: .06em; text-transform: uppercase; }
+  .brand span { color: var(--mat); }
+  .phase-pill { font-family: var(--label); font-weight: 700; font-size: 15px; letter-spacing: .16em; text-transform: uppercase; color: var(--on-phase); background: var(--phase); padding: 4px 12px 3px; border-radius: 999px; transition: background .3s; }
+  .clock { position: relative; text-align: center; padding: 6px 12px 0; }
+  .digits { font-family: var(--display); font-weight: 900; font-size: clamp(104px, 27vw, 230px); line-height: .95; color: var(--phase); font-variant-numeric: tabular-nums; letter-spacing: .01em; transition: color .3s; }
+  .digits.flash { animation: flash .5s steps(2) infinite; }
+  @keyframes flash { 50% { opacity: .35; } }
+  .round-line { font-family: var(--label); font-weight: 600; font-size: 18px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+  .round-line b { color: var(--text); font-weight: 700; }
+  .bar { position: relative; height: 6px; background: var(--line); margin: 16px 18px 0; border-radius: 3px; overflow: hidden; }
+  .bar i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--phase); border-radius: 3px; transition: background .3s; }
+  .controls { position: relative; display: grid; grid-template-columns: 1fr auto auto; gap: 10px; padding: 16px 18px 18px; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  .btn { font-family: var(--label); font-weight: 700; text-transform: uppercase; letter-spacing: .1em; font-size: 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); padding: 12px 16px; min-height: 48px; transition: background .15s, border-color .15s, transform .08s; }
+  .btn:hover { border-color: #3B4862; background: #212B3F; }
+  .btn:active { transform: translateY(1px); }
+  .btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, .chip:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+  .btn.primary { background: var(--phase); border-color: transparent; color: var(--on-phase); font-size: 20px; }
+  .btn.primary:hover { filter: brightness(1.08); background: var(--phase); }
+  .btn.small { min-height: 36px; padding: 6px 12px; font-size: 14px; }
+  .btn.ghost { background: transparent; }
+  .btn.danger-armed { border-color: var(--mat); color: var(--mat); }
+  .btn[disabled] { opacity: .45; cursor: not-allowed; }
+  .notice { position: relative; margin: 0 18px 16px; padding: 10px 12px; border-radius: 8px; background: var(--mat-soft); color: #FFC9CD; font-size: 14px; }
+
+  /* ---------- Lineup ---------- */
+  .section-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .section-head .eyebrow { margin-bottom: 2px; }
+  .mats { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .mat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 14px; display: grid; gap: 8px; position: relative; overflow: hidden; }
+  .mat::after { content: ""; position: absolute; right: -52px; top: -52px; width: 88px; height: 88px; border-radius: 50%; border: 2px solid rgba(210, 53, 63, .22); box-shadow: 0 0 0 14px rgba(210,53,63,.05); pointer-events: none; }
+  .mat-label { font-family: var(--label); font-weight: 600; text-transform: uppercase; letter-spacing: .14em; font-size: 12px; color: var(--muted); }
+  .corner { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .band { flex: none; width: 10px; height: 26px; border-radius: 3px; }
+  .band.red { background: var(--band-red); }
+  .band.green { background: var(--band-green); }
+  .corner .nm { font-weight: 700; font-size: 19px; line-height: 1.15; overflow-wrap: anywhere; }
+  .corner .wt { margin-left: auto; font-family: var(--label); font-weight: 600; color: var(--muted); font-size: 15px; font-variant-numeric: tabular-nums; flex: none; }
+  .vs { font-family: var(--label); font-weight: 600; font-size: 12px; letter-spacing: .2em; color: var(--muted); padding-left: 20px; }
+  .bench { background: transparent; border: 1.5px dashed var(--rest); }
+  .bench::after { display: none; }
+  .bench .mat-label { color: var(--rest); }
+  .bench .nm { color: #CFE5FA; }
+  .rotation { margin-top: 12px; padding: 12px 14px; border-radius: 10px; background: var(--rest-soft); font-size: 14px; color: #CFE5FA; display: grid; gap: 4px; }
+  .rotation b { color: #fff; }
+  .empty { padding: 22px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); text-align: center; }
+
+  /* ---------- Cards on the side ---------- */
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 14px; }
+  .setting { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; }
+  .setting .lbl { font-weight: 600; }
+  .setting .hint { display: block; font-size: 13px; color: var(--muted); font-weight: 400; }
+  .stepper { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel-2); }
+  .stepper button { width: 40px; height: 40px; border: 0; background: transparent; font-size: 20px; font-weight: 600; color: var(--text); }
+  .stepper button:hover { background: #26314A; }
+  .stepper output { min-width: 78px; text-align: center; font-family: var(--display); font-weight: 800; font-size: 22px; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel-2); }
+  .seg button { border: 0; background: transparent; padding: 9px 12px; font-family: var(--label); font-weight: 600; font-size: 14px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .seg button[aria-pressed="true"] { background: var(--amber); color: var(--ground); }
+  .toggle { position: relative; width: 48px; height: 28px; flex: none; }
+  .toggle input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+  .toggle span { position: absolute; inset: 0; border-radius: 999px; background: var(--line); transition: background .15s; pointer-events: none; }
+  .toggle span::after { content: ""; position: absolute; left: 3px; top: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--text); transition: transform .15s; }
+  .toggle input:checked + span { background: var(--done); }
+  .toggle input:checked + span::after { transform: translateX(20px); }
+  .toggle input:focus-visible + span { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+  .add-row { display: grid; grid-template-columns: minmax(0, 1fr) 84px auto; gap: 8px; }
+  input[type="text"], input[type="number"], textarea { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-height: 44px; width: 100%; box-sizing: border-box; }
+  input::placeholder, textarea::placeholder { color: #66728A; }
+  textarea { min-height: 96px; resize: vertical; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  details[open] summary { margin-bottom: 8px; }
+  .bulk { display: grid; gap: 8px; }
+  .sample-note { font-size: 14px; color: var(--muted); display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px; background: var(--phase-soft); }
+  .roster { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+  .roster li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--line); }
+  .roster li:last-child { border-bottom: 0; }
+  .roster li.out .who { opacity: .45; text-decoration: line-through; }
+  .roster .who { min-width: 0; }
+  .roster .who b { display: block; font-weight: 600; overflow-wrap: anywhere; }
+  .roster .who small { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .roster .wt { font-family: var(--label); font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .x { width: 34px; height: 34px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--muted); font-size: 18px; }
+  .x:hover { border-color: var(--line); color: var(--mat); }
+  .check { width: 22px; height: 22px; accent-color: var(--done); margin: 0; cursor: pointer; }
+  .count-line { font-size: 14px; color: var(--muted); }
+  .count-line b { color: var(--text); }
+
+  @media (max-width: 520px) {
+    .controls { grid-template-columns: 1fr 1fr; }
+    .controls .primary { grid-column: 1 / -1; }
+    .board-top { padding: 12px 14px 0; }
+    .controls { padding: 14px; }
+    .bar { margin-inline: 14px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .digits.flash { animation: none; }
+    * { transition: none !important; }
+  }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <div class="main">
+    <section class="board" aria-label="Round timer">
+      <div class="board-top">
+        <div class="brand">Mat<span>·</span>Clock</div>
+        <div class="phase-pill" id="phasePill">Ready</div>
+      </div>
+      <div class="clock">
+        <div class="digits" id="digits" aria-live="off">2:00</div>
+        <div class="round-line" id="roundLine">Round <b>1</b> of <b>6</b></div>
+      </div>
+      <div class="bar"><i id="barFill"></i></div>
+      <div class="controls">
+        <button class="btn primary" id="mainBtn">Start practice</button>
+        <button class="btn" id="skipBtn" title="Jump to the next phase">Skip</button>
+        <button class="btn" id="restartBtn" title="Restart the clock for this phase">Restart</button>
+      </div>
+      <div class="notice" id="notice" hidden></div>
+    </section>
+
+    <section aria-labelledby="lineupTitle">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow" id="lineupEyebrow">Round 1 matchups</div>
+          <h2 id="lineupTitle">Pairings</h2>
+        </div>
+        <button class="btn small ghost" id="shuffleBtn">Reshuffle partners</button>
+      </div>
+      <div class="mats" id="mats"></div>
+      <div class="rotation" id="rotation" hidden></div>
+    </section>
+  </div>
+
+  <aside class="side">
+    <section class="card" aria-labelledby="setTitle">
+      <h2 id="setTitle">Practice setup</h2>
+      <div class="setting">
+        <div class="lbl">Round length<span class="hint">Live wrestling time</span></div>
+        <div class="stepper"><button id="roundMinus" aria-label="Shorter rounds">−</button><output id="roundOut">2:00</output><button id="roundPlus" aria-label="Longer rounds">+</button></div>
+      </div>
+      <div class="setting">
+        <div class="lbl">Break between rounds<span class="hint">Time to find the next partner</span></div>
+        <div class="stepper"><button id="restMinus" aria-label="Shorter break">−</button><output id="restOut">0:30</output><button id="restPlus" aria-label="Longer break">+</button></div>
+      </div>
+      <div class="setting">
+        <div class="lbl">Number of rounds<span class="hint">Set to “No limit” to keep going</span></div>
+        <div class="stepper"><button id="roundsMinus" aria-label="Fewer rounds">−</button><output id="roundsOut">6</output><button id="roundsPlus" aria-label="More rounds">+</button></div>
+      </div>
+      <div class="setting">
+        <div class="lbl">Pick partners by<span class="hint">Weight uses the numbers on the roster</span></div>
+        <div class="seg" role="group" aria-label="Pick partners by">
+          <button id="modeMix" aria-pressed="true">Rotate</button><button id="modeWeight" aria-pressed="false">Weight</button>
+        </div>
+      </div>
+      <div class="setting">
+        <div class="lbl">Sounds<span class="hint">Turn off to run the clock silently</span></div>
+        <label class="toggle"><input type="checkbox" id="soundToggle" aria-label="Sounds"><span></span></label>
+      </div>
+      <div class="setting">
+        <div class="lbl">Alerts<span class="hint">Voice calls out rounds, time and who rests</span></div>
+        <div class="seg" role="group" aria-label="Alert style">
+          <button id="alertHorn" aria-pressed="false">Horn</button><button id="alertVoice" aria-pressed="false">Voice</button><button id="alertBoth" aria-pressed="true">Both</button>
+        </div>
+      </div>
+      <button class="btn small ghost" id="testAlertBtn">Test alerts</button>
+      <div class="install-row" id="installRow" hidden>
+        <button class="btn small" id="installBtn">Install app</button>
+      </div>
+      <div class="install-hint" id="iosHint" hidden>To install on iPhone: tap Share, then “Add to Home Screen.”</div>
+      <button class="btn small ghost" id="newPracticeBtn">New practice (clear rest counts)</button>
+    </section>
+
+    <section class="card" aria-labelledby="rosterTitle">
+      <div class="section-head" style="margin-bottom:0">
+        <h2 id="rosterTitle">Roster</h2>
+        <div class="count-line" id="countLine"></div>
+      </div>
+      <div class="sample-note" id="sampleNote" hidden>
+        <span>This is an example roster. Clear it and add your wrestlers.</span>
+        <button class="btn small" id="clearSampleBtn">Clear roster</button>
+      </div>
+      <form class="add-row" id="addForm" autocomplete="off">
+        <input type="text" id="addName" placeholder="Wrestler name" aria-label="Wrestler name">
+        <input type="number" id="addWeight" placeholder="Wt" aria-label="Weight in pounds (optional)" inputmode="numeric" min="0">
+        <button class="btn small" type="submit">Add</button>
+      </form>
+      <details>
+        <summary>Paste a whole list</summary>
+        <div class="bulk">
+          <textarea id="bulkText" placeholder="One per line. Add a weight after the name if you like:&#10;Marcus 126&#10;Jaylen 132"></textarea>
+          <button class="btn small" id="bulkBtn">Add everyone</button>
+        </div>
+      </details>
+      <ul class="roster" id="roster"></ul>
+    </section>
+  </aside>
+</div>
+
+<script>
+(function () {
+  const KEY = 'matclock.v1';
+  const $ = (id) => document.getElementById(id);
+  const uid = () => Math.random().toString(36).slice(2, 10);
+  const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmt = (sec) => { sec = Math.max(0, Math.ceil(sec)); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); };
+
+  function mkWrestler(name, weight) {
+    return { id: uid(), name, weight: (weight || weight === 0) && !isNaN(weight) ? Number(weight) : null, present: true, sits: 0, lastSat: -1, order: Math.random(), partners: {}, lastPartner: null, bouts: 0 };
+  }
+  function defaults() {
+    const sample = [['Marcus', 126], ['Jaylen', 132], ['Tony', 132], ['Eli', 138], ['Diego', 145], ['Sam', 145], ['Owen', 152], ['Caleb', 160], ['Ray', 170]];
+    return {
+      settings: { roundSec: 120, restSec: 30, rounds: 6, mode: 'mix', sound: true, alerts: 'both' },
+      wrestlers: sample.map(([n, w]) => mkWrestler(n, w)),
+      sample: true, round: 0, phase: 'ready', remaining: 120000, phaseTotal: 120000,
+      current: null, lineup: null
+    };
+  }
+  function load() {
+    try { const raw = localStorage.getItem(KEY); if (!raw) return null; const s = JSON.parse(raw); if (!s || !Array.isArray(s.wrestlers)) return null; return s; } catch (e) { return null; }
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { } }
+
+  let S = load() || defaults();
+  if (!S.settings.alerts) S.settings.alerts = 'both';
+  let running = false, endAt = 0, lastWhole = null, wakeLock = null;
+
+  const byId = (id) => S.wrestlers.find(w => w.id === id);
+  const present = () => S.wrestlers.filter(w => w.present);
+
+  /* ---------- Fair rest rotation + partner selection ---------- */
+  // Whoever has rested the fewest times sits next; ties go to whoever rested longest ago.
+  const restOrder = (list) => list.slice().sort((a, b) => a.sits - b.sits || a.lastSat - b.lastSat || a.order - b.order);
+
+  function cost(a, b) {
+    let c = (a.partners[b.id] || 0) * 100;
+    if (a.lastPartner === b.id) c += 10000;
+    if (S.settings.mode === 'weight' && a.weight != null && b.weight != null) c += Math.abs(a.weight - b.weight) * 12;
+    return c;
+  }
+  function shuffle(arr) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+  function bestPairs(pool) {
+    if (pool.length < 2) return [];
+    let best = null, bestCost = Infinity;
+    const tries = Math.min(120, 20 + pool.length * 6);
+    for (let t = 0; t < tries; t++) {
+      const arr = shuffle(pool), used = new Set(), pairs = [];
+      for (const a of arr) {
+        if (used.has(a.id)) continue;
+        used.add(a.id);
+        let pick = null, pc = Infinity;
+        for (const b of arr) { if (used.has(b.id)) continue; const c = cost(a, b) + Math.random() * 0.5; if (c < pc) { pc = c; pick = b; } }
+        if (pick) { used.add(pick.id); pairs.push([a, pick]); }
+      }
+      // local improvement: swap partners between two pairs when it lowers the total
+      let improved = true, guard = 0;
+      while (improved && guard++ < 50) {
+        improved = false;
+        for (let i = 0; i < pairs.length; i++) for (let j = i + 1; j < pairs.length; j++) {
+          const [a, b] = pairs[i], [c, d] = pairs[j];
+          const now = cost(a, b) + cost(c, d), o1 = cost(a, c) + cost(b, d), o2 = cost(a, d) + cost(b, c);
+          if (o1 < now - 0.01 && o1 <= o2) { pairs[i] = [a, c]; pairs[j] = [b, d]; improved = true; }
+          else if (o2 < now - 0.01) { pairs[i] = [a, d]; pairs[j] = [b, c]; improved = true; }
+        }
+      }
+      const total = pairs.reduce((s, [a, b]) => s + cost(a, b), 0);
+      if (total < bestCost) { bestCost = total; best = pairs; }
+    }
+    return best.map(([a, b]) => Math.random() < 0.5 ? [a.id, b.id] : [b.id, a.id]);
+  }
+  function buildLineup() {
+    const act = present();
+    if (act.length < 2) return { pairs: [], bench: act.map(w => w.id) };
+    const benchN = act.length % 2;
+    const bench = restOrder(act).slice(0, benchN);
+    const pool = act.filter(w => !bench.includes(w));
+    return { pairs: bestPairs(pool), bench: bench.map(w => w.id) };
+  }
+  function commit(lu) {
+    S.round++;
+    for (const [x, y] of lu.pairs) {
+      const a = byId(x), b = byId(y); if (!a || !b) continue;
+      a.partners[b.id] = (a.partners[b.id] || 0) + 1; b.partners[a.id] = (b.partners[a.id] || 0) + 1;
+      a.lastPartner = b.id; b.lastPartner = a.id; a.bouts++; b.bouts++;
+    }
+    for (const id of lu.bench) { const w = byId(id); if (w) { w.sits++; w.lastSat = S.round; w.lastPartner = null; } }
+    S.current = lu; S.lineup = null;
+  }
+  function upcomingRests(n) {
+    // Simulate the rotation forward from what is on screen.
+    const act = present().map(w => ({ id: w.id, sits: w.sits, lastSat: w.lastSat, order: w.order }));
+    if (act.length % 2 === 0 || act.length < 3) return [];
+    let r = S.round;
+    const showingPreview = S.phase !== 'wrestle' && S.lineup;
+    if (showingPreview) { r++; for (const id of S.lineup.bench) { const w = act.find(x => x.id === id); if (w) { w.sits++; w.lastSat = r; } } }
+    const out = [];
+    for (let k = 0; k < n; k++) { r++; const w = restOrder(act)[0]; w.sits++; w.lastSat = r; out.push(w.id); }
+    return out;
+  }
+  function ensureLineup() { if (!S.lineup && S.phase !== 'wrestle') S.lineup = buildLineup(); }
+  function rosterChanged() { if (S.phase !== 'wrestle') S.lineup = buildLineup(); save(); render(); }
+
+  /* ---------- Sound ---------- */
+  let ctx = null;
+  function audio() { if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { } } if (ctx && ctx.state === 'suspended') ctx.resume(); return ctx; }
+  function tone(freq, dur, type, vol, when) {
+    if (!S.settings.sound) return; const c = audio(); if (!c) return;
+    const t = c.currentTime + (when || 0), o = c.createOscillator(), g = c.createGain();
+    o.type = type || 'sine'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol || 0.3, t + 0.02);
+    g.gain.setValueAtTime(vol || 0.3, t + dur - 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(c.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  const whistle = () => { tone(2300, 0.18, 'square', 0.12); tone(2300, 0.45, 'square', 0.12, 0.26); };
+  const horn = () => { tone(196, 1.3, 'sawtooth', 0.22); tone(247, 1.3, 'sawtooth', 0.14); };
+  const warnBeep = () => { tone(880, 0.16, 'sine', 0.3); tone(880, 0.16, 'sine', 0.3, 0.22); };
+  const pip = () => tone(1320, 0.1, 'sine', 0.25);
+
+  /* ---------- Voice + vibration ---------- */
+  const useHorn = () => S.settings.alerts !== 'voice';
+  const useVoice = () => S.settings.alerts !== 'horn' && 'speechSynthesis' in window;
+  let voice = null;
+  function pickVoice() {
+    try {
+      const vs = speechSynthesis.getVoices();
+      voice = vs.find(v => /en-US/i.test(v.lang) && /Google|Samantha|Alex|Aaron|Daniel/i.test(v.name)) || vs.find(v => /^en/i.test(v.lang)) || null;
+    } catch (e) { }
+  }
+  if ('speechSynthesis' in window) { pickVoice(); try { speechSynthesis.onvoiceschanged = pickVoice; } catch (e) { } }
+  function say(text, delay) {
+    if (!S.settings.sound || !useVoice()) return;
+    const go = () => {
+      try {
+        speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        if (voice) u.voice = voice;
+        u.rate = 1.05; u.pitch = 1; u.volume = 1;
+        speechSynthesis.speak(u);
+      } catch (e) { }
+    };
+    delay ? setTimeout(go, delay) : go();
+  }
+  function buzz(pattern) { try { if (S.settings.sound && navigator.vibrate) navigator.vibrate(pattern); } catch (e) { } }
+  function listNames(ids) {
+    const n = ids.map(id => nameOf(id).name);
+    return n.length <= 1 ? n.join('') : n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1];
+  }
+
+  // One place for every alert, so horn / voice / both stay in sync.
+  const alerts = {
+    roundStart() {
+      if (useHorn()) whistle();
+      const last = S.settings.rounds && S.round === S.settings.rounds;
+      say((last ? 'Last round.' : 'Round ' + S.round + '.') + ' Wrestle!', useHorn() ? 750 : 0);
+      buzz(200);
+    },
+    tenSeconds() { if (useHorn()) warnBeep(); say('Ten seconds', useHorn() ? 450 : 0); buzz([120, 80, 120]); },
+    roundEnd(done) {
+      if (useHorn()) horn();
+      buzz([500, 150, 500]);
+      const d = useHorn() ? 1350 : 0;
+      if (done) { say('Time! That’s practice. Nice work.', d); return; }
+      let msg = 'Time! Switch partners.';
+      if (S.lineup && S.lineup.bench.length && S.lineup.pairs.length) msg += ' ' + listNames(S.lineup.bench) + (S.lineup.bench.length > 1 ? ' rest.' : ' rests.');
+      say(msg, d);
+    },
+    restCountdown(n) { if (useHorn()) pip(); else if (n === 3) say('Three, two, one'); }
+  };
+
+  async function keepAwake() { try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch (e) { } }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && running) keepAwake(); });
+
+  /* ---------- Timer ---------- */
+  function startPhase(phase, sec) { S.phase = phase; S.phaseTotal = sec * 1000; S.remaining = sec * 1000; lastWhole = null; run(); render(); }
+  function run() { running = true; endAt = Date.now() + S.remaining; keepAwake(); }
+  function pause() { if (!running) return; S.remaining = Math.max(0, endAt - Date.now()); running = false; save(); render(); }
+  function beginRoundQuiet() { beginRound(true); }
+  function beginRound(quiet) {
+    ensureLineup();
+    if (!S.lineup || S.lineup.pairs.length === 0) { showNotice('Add at least two wrestlers who are here today to start.'); running = false; render(); return; }
+    commit(S.lineup); startPhase('wrestle', S.settings.roundSec); if (!quiet) alerts.roundStart(); save();
+  }
+  function phaseEnd() {
+    if (S.phase === 'wrestle') {
+      if (S.settings.rounds && S.round >= S.settings.rounds) { alerts.roundEnd(true); running = false; S.phase = 'done'; S.remaining = 0; S.lineup = null; save(); render(); return; }
+      S.lineup = buildLineup();
+      if (S.settings.restSec > 0) { alerts.roundEnd(false); startPhase('rest', S.settings.restSec); }
+      else { if (useHorn()) horn(); buzz([500, 150, 500]); setTimeout(() => { if (S.phase === 'wrestle') alerts.roundStart(); }, 1500); beginRoundQuiet(); }
+      save();
+    } else if (S.phase === 'rest') { beginRound(); }
+  }
+  function tick() {
+    if (running) {
+      S.remaining = Math.max(0, endAt - Date.now());
+      const whole = Math.ceil(S.remaining / 1000);
+      if (lastWhole !== null && whole !== lastWhole) {
+        if (S.phase === 'wrestle' && whole === 10 && S.phaseTotal > 15000) alerts.tenSeconds();
+        if (S.phase === 'rest' && whole >= 1 && whole <= 3 && S.phaseTotal > 6000) alerts.restCountdown(whole);
+      }
+      lastWhole = whole;
+      if (S.remaining <= 0) { phaseEnd(); return; }
+    }
+    renderClock();
+  }
+  setInterval(tick, 100);
+
+  /* ---------- Rendering ---------- */
+  const PHASES = {
+    ready: { label: 'Ready', color: 'var(--amber)', soft: 'rgba(255,178,62,.12)' },
+    wrestle: { label: 'Wrestle', color: 'var(--mat)', soft: 'rgba(210,53,63,.20)' },
+    rest: { label: 'Switch partners', color: 'var(--rest)', soft: 'rgba(62,146,219,.20)' },
+    done: { label: 'Practice done', color: 'var(--done)', soft: 'rgba(63,191,127,.16)' }
+  };
+  function renderClock() {
+    const p = PHASES[S.phase], root = document.documentElement.style;
+    root.setProperty('--phase', p.color); root.setProperty('--phase-soft', p.soft); root.setProperty('--on-phase', S.phase === 'wrestle' || S.phase === 'rest' ? '#FFFFFF' : '#0E131D');
+    $('phasePill').textContent = running || S.phase === 'ready' || S.phase === 'done' ? p.label : 'Paused';
+    let secs = S.phase === 'ready' ? S.settings.roundSec : S.remaining / 1000;
+    $('digits').textContent = S.phase === 'done' ? 'DONE' : fmt(secs);
+    $('digits').classList.toggle('flash', running && S.phase === 'wrestle' && S.remaining <= 10000);
+    const frac = S.phase === 'ready' ? 0 : S.phase === 'done' ? 1 : 1 - S.remaining / (S.phaseTotal || 1);
+    $('barFill').style.width = (Math.min(1, Math.max(0, frac)) * 100).toFixed(2) + '%';
+  }
+  function roundText() {
+    const total = S.settings.rounds;
+    const n = S.phase === 'wrestle' ? S.round : S.phase === 'done' ? S.round : S.round + 1;
+    if (S.phase === 'done') return 'Finished <b>' + S.round + '</b> round' + (S.round === 1 ? '' : 's');
+    const lead = S.phase === 'rest' ? 'Next: round ' : 'Round ';
+    return lead + '<b>' + n + '</b>' + (total ? ' of <b>' + total + '</b>' : '');
+  }
+  function nameOf(id) { const w = byId(id); return w ? w : { name: '(removed)', weight: null }; }
+  function corner(id, band) {
+    const w = nameOf(id);
+    return '<div class="corner"><span class="band ' + band + '" aria-hidden="true"></span><span class="nm">' + esc(w.name) + '</span>' + (w.weight != null ? '<span class="wt">' + w.weight + '</span>' : '') + '</div>';
+  }
+  function renderLineup() {
+    ensureLineup();
+    const lu = S.phase === 'wrestle' ? S.current : S.phase === 'done' ? null : S.lineup;
+    const eb = S.phase === 'wrestle' ? 'On the mat now · round ' + S.round : S.phase === 'rest' ? 'Find your partner · round ' + (S.round + 1) : S.phase === 'done' ? 'Practice complete' : 'Round ' + (S.round + 1) + ' matchups';
+    $('lineupEyebrow').textContent = eb;
+    $('lineupTitle').textContent = S.phase === 'done' ? 'Nice work' : 'Pairings';
+    $('shuffleBtn').hidden = S.phase === 'wrestle' || S.phase === 'done';
+    const mats = $('mats');
+    if (S.phase === 'done') {
+      mats.innerHTML = '<div class="empty">' + S.round + ' rounds wrestled. Press “Start again” to run another set with fresh rest counts.</div>';
+      $('rotation').hidden = true; return;
+    }
+    if (!lu || (lu.pairs.length === 0 && lu.bench.length === 0)) {
+      mats.innerHTML = '<div class="empty">Add wrestlers to the roster and they’ll be paired up here.</div>';
+      $('rotation').hidden = true; return;
+    }
+    let html = lu.pairs.map(([a, b], i) => '<div class="mat"><div class="mat-label">Mat ' + (i + 1) + '</div>' + corner(a, 'red') + '<div class="vs">VS</div>' + corner(b, 'green') + '</div>').join('');
+    if (lu.bench.length) {
+      html += '<div class="mat bench"><div class="mat-label">' + (lu.pairs.length ? 'Resting this round' : 'Waiting') + '</div>' + lu.bench.map(id => '<div class="corner"><span class="nm">' + esc(nameOf(id).name) + '</span></div>').join('') + '</div>';
+    }
+    mats.innerHTML = html;
+    const act = present().length, rot = $('rotation');
+    if (act >= 3 && act % 2 === 1) {
+      const next = upcomingRests(3).map(id => esc(nameOf(id).name));
+      rot.innerHTML = '<div>Odd number today, so one wrestler rests each round. Everyone gets a break once every <b>' + act + ' rounds</b>.</div>' +
+        (next.length ? '<div>Next to rest: <b>' + next.join('</b> → <b>') + '</b></div>' : '');
+      rot.hidden = false;
+    } else rot.hidden = true;
+  }
+  function renderRoster() {
+    const list = S.wrestlers.slice().sort((a, b) => a.name.localeCompare(b.name));
+    $('roster').innerHTML = list.map(w => {
+      const stats = S.round ? w.bouts + ' bout' + (w.bouts === 1 ? '' : 's') + ' · rested ' + w.sits + '×' : (w.present ? 'Here today' : 'Not here today');
+      return '<li class="' + (w.present ? '' : 'out') + '" data-id="' + w.id + '">' +
+        '<input type="checkbox" class="check" id="here-' + w.id + '" data-act="here" ' + (w.present ? 'checked' : '') + ' aria-label="' + esc(w.name) + ' is here today">' +
+        '<label class="who" for="here-' + w.id + '"><b>' + esc(w.name) + '</b><small>' + stats + '</small></label>' +
+        '<span class="wt">' + (w.weight != null ? w.weight + ' lb' : '') + '</span>' +
+        '<button class="x" data-act="del" aria-label="Remove ' + esc(w.name) + '">×</button></li>';
+    }).join('');
+    const here = present().length;
+    $('countLine').innerHTML = '<b>' + here + '</b> here' + (S.wrestlers.length !== here ? ' of ' + S.wrestlers.length : '');
+    $('sampleNote').hidden = !S.sample;
+  }
+  function renderSettings() {
+    const s = S.settings;
+    $('roundOut').textContent = fmt(s.roundSec);
+    $('restOut').textContent = s.restSec ? fmt(s.restSec) : 'None';
+    $('roundsOut').textContent = s.rounds ? s.rounds : 'No limit';
+    $('modeMix').setAttribute('aria-pressed', s.mode === 'mix');
+    $('modeWeight').setAttribute('aria-pressed', s.mode === 'weight');
+    $('soundToggle').checked = !!s.sound;
+    for (const k of ['horn', 'voice', 'both']) $('alert' + k[0].toUpperCase() + k.slice(1)).setAttribute('aria-pressed', s.alerts === k);
+  }
+  function renderButtons() {
+    const mb = $('mainBtn');
+    if (S.phase === 'ready') mb.textContent = S.round ? 'Start round' : 'Start practice';
+    else if (S.phase === 'done') mb.textContent = 'Start again';
+    else mb.textContent = running ? 'Pause' : 'Resume';
+    $('skipBtn').disabled = S.phase === 'done';
+    $('restartBtn').disabled = S.phase === 'ready' || S.phase === 'done';
+    $('skipBtn').textContent = S.phase === 'wrestle' ? 'End round' : 'Skip';
+  }
+  function render() {
+    $('roundLine').innerHTML = roundText();
+    renderClock(); renderLineup(); renderRoster(); renderSettings(); renderButtons();
+  }
+  let noticeT;
+  function showNotice(msg) { const n = $('notice'); n.textContent = msg; n.hidden = false; clearTimeout(noticeT); noticeT = setTimeout(() => { n.hidden = true; }, 5000); }
+
+  /* ---------- Events ---------- */
+  function resetPractice() {
+    running = false;
+    for (const w of S.wrestlers) { w.sits = 0; w.lastSat = -1; w.partners = {}; w.lastPartner = null; w.bouts = 0; w.order = Math.random(); }
+    S.round = 0; S.phase = 'ready'; S.current = null; S.lineup = buildLineup();
+    S.remaining = S.settings.roundSec * 1000; S.phaseTotal = S.remaining; save(); render();
+  }
+  $('mainBtn').addEventListener('click', () => {
+    audio();
+    if (S.phase === 'ready') beginRound();
+    else if (S.phase === 'done') { resetPractice(); beginRound(); }
+    else if (running) pause();
+    else { run(); render(); }
+  });
+  $('skipBtn').addEventListener('click', () => {
+    audio();
+    if (S.phase === 'ready') beginRound();
+    else if (S.phase === 'wrestle' || S.phase === 'rest') { if (!running) running = true; S.remaining = 0; phaseEnd(); }
+  });
+  $('restartBtn').addEventListener('click', () => { S.remaining = S.phaseTotal; lastWhole = null; if (running) endAt = Date.now() + S.remaining; save(); render(); });
+  $('shuffleBtn').addEventListener('click', () => { S.lineup = buildLineup(); save(); renderLineup(); });
+
+  let armed = null;
+  $('newPracticeBtn').addEventListener('click', (e) => {
+    const b = e.currentTarget;
+    if (armed) { clearTimeout(armed); armed = null; b.classList.remove('danger-armed'); b.textContent = 'New practice (clear rest counts)'; resetPractice(); return; }
+    b.classList.add('danger-armed'); b.textContent = 'Tap again to clear rounds and rest counts';
+    armed = setTimeout(() => { armed = null; b.classList.remove('danger-armed'); b.textContent = 'New practice (clear rest counts)'; }, 3500);
+  });
+
+  function stepSetting(key, delta, min, max) {
+    const s = S.settings; s[key] = Math.min(max, Math.max(min, s[key] + delta));
+    if (S.phase === 'ready' && key === 'roundSec') { S.remaining = s.roundSec * 1000; S.phaseTotal = S.remaining; }
+    save(); render();
+  }
+  $('roundMinus').addEventListener('click', () => stepSetting('roundSec', -15, 15, 900));
+  $('roundPlus').addEventListener('click', () => stepSetting('roundSec', 15, 15, 900));
+  $('restMinus').addEventListener('click', () => stepSetting('restSec', -5, 0, 300));
+  $('restPlus').addEventListener('click', () => stepSetting('restSec', 5, 0, 300));
+  $('roundsMinus').addEventListener('click', () => stepSetting('rounds', -1, 0, 60));
+  $('roundsPlus').addEventListener('click', () => stepSetting('rounds', 1, 0, 60));
+  $('modeMix').addEventListener('click', () => { S.settings.mode = 'mix'; rosterChanged(); });
+  $('modeWeight').addEventListener('click', () => {
+    S.settings.mode = 'weight'; rosterChanged();
+    if (present().some(w => w.weight == null)) showNotice('Some wrestlers have no weight listed, so they’ll be paired by rotation only.');
+  });
+  $('soundToggle').addEventListener('change', (e) => { S.settings.sound = e.target.checked; save(); if (e.target.checked) { audio(); pip(); } else { try { speechSynthesis.cancel(); } catch (x) { } } });
+  for (const k of ['horn', 'voice', 'both']) $('alert' + k[0].toUpperCase() + k.slice(1)).addEventListener('click', () => {
+    S.settings.alerts = k; save(); renderSettings();
+    if (k !== 'horn' && !('speechSynthesis' in window)) showNotice('This browser can\u2019t speak, so you\u2019ll hear the horn only.');
+  });
+  $('testAlertBtn').addEventListener('click', () => {
+    audio();
+    if (!S.settings.sound) { showNotice('Sounds are off. Turn them on to test.'); return; }
+    if (useHorn()) horn();
+    say('Time! Switch partners.', useHorn() ? 1350 : 0);
+    buzz([500, 150, 500]);
+  });
+
+  function addWrestler(name, weight) {
+    name = name.trim(); if (!name) return false;
+    const w = mkWrestler(name, weight);
+    // Late arrivals join the rest queue level with everyone else, behind people already due.
+    const act = present();
+    if (S.round && act.length) { w.sits = Math.min(...act.map(x => x.sits)); w.lastSat = S.round; }
+    S.wrestlers.push(w); return true;
+  }
+  $('addForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const wt = $('addWeight').value.trim();
+    if (addWrestler($('addName').value, wt === '' ? null : Number(wt))) { $('addName').value = ''; $('addWeight').value = ''; $('addName').focus(); rosterChanged(); }
+  });
+  $('bulkBtn').addEventListener('click', () => {
+    let n = 0;
+    for (const line of $('bulkText').value.split(/\r?\n/)) {
+      const t = line.replace(/[,\t;]+/g, ' ').trim(); if (!t) continue;
+      const m = t.match(/^(.*?)[\s(]+(\d{2,3}(?:\.\d)?)\s*(?:lbs?|kg)?\)?$/i);
+      if (m && m[1].trim()) { if (addWrestler(m[1], Number(m[2]))) n++; } else if (addWrestler(t, null)) n++;
+    }
+    if (n) { $('bulkText').value = ''; rosterChanged(); showNotice('Added ' + n + ' wrestler' + (n === 1 ? '' : 's') + '.'); }
+  });
+  $('clearSampleBtn').addEventListener('click', () => {
+    running = false; S.wrestlers = []; S.sample = false; S.round = 0; S.phase = 'ready'; S.current = null; S.lineup = null;
+    S.remaining = S.settings.roundSec * 1000; rosterChanged(); $('addName').focus();
+  });
+  $('roster').addEventListener('change', (e) => {
+    if (e.target.dataset.act !== 'here') return;
+    const w = byId(e.target.closest('li').dataset.id); if (!w) return;
+    w.present = e.target.checked;
+    // Someone coming back shouldn't be first in line to rest again.
+    if (w.present && S.round) { const others = present().filter(x => x !== w); if (others.length) { w.sits = Math.max(w.sits, Math.min(...others.map(x => x.sits))); w.lastSat = Math.max(w.lastSat, S.round); } }
+    rosterChanged();
+  });
+  $('roster').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act="del"]'); if (!b) return;
+    const id = b.closest('li').dataset.id;
+    S.wrestlers = S.wrestlers.filter(w => w.id !== id);
+    rosterChanged();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.code !== 'Space' || /INPUT|TEXTAREA|BUTTON|SELECT/.test(document.activeElement.tagName)) return;
+    e.preventDefault(); $('mainBtn').click();
+  });
+
+  // On load the clock is always paused so nothing starts by surprise.
+  running = false;
+  if (S.phase === 'ready') { S.remaining = S.settings.roundSec * 1000; S.phaseTotal = S.remaining; }
+  ensureLineup();
+  render();
+})();
+</script>
+
+<script>
+  // Offline support + install prompt
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(() => {}); });
+  }
+  (function () {
+    const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+    if (standalone) return;
+    let deferred = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault(); deferred = e;
+      document.getElementById('installRow').hidden = false;
+    });
+    document.getElementById('installBtn').addEventListener('click', async () => {
+      if (!deferred) return;
+      deferred.prompt();
+      try { await deferred.userChoice; } catch (e) {}
+      deferred = null; document.getElementById('installRow').hidden = true;
+    });
+    window.addEventListener('appinstalled', () => { document.getElementById('installRow').hidden = true; });
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (ios) document.getElementById('iosHint').hidden = false;
+  })();
+</script>
+</body>
+</html>
