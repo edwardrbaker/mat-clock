@@ -245,7 +245,7 @@
       <div class="notice" id="notice" hidden></div>
     </section>
 
-    <section aria-labelledby="lineupTitle">
+    <section aria-labelledby="lineupTitle" id="lineupSection">
       <div class="section-head">
         <div>
           <div class="eyebrow" id="lineupEyebrow">Round 1 matchups</div>
@@ -277,6 +277,10 @@
         <div class="stepper"><button id="roundsMinus" aria-label="Fewer rounds">−</button><output id="roundsOut">6</output><button id="roundsPlus" aria-label="More rounds">+</button></div>
       </div>
       <div class="setting">
+        <div class="lbl">Pair partners<span class="hint">Turn off to just run the clock</span></div>
+        <label class="toggle"><input type="checkbox" id="matchToggle" aria-label="Pair partners"><span></span></label>
+      </div>
+      <div class="setting" id="modeRow">
         <div class="lbl">Pick partners by<span class="hint">Weight uses the numbers on the roster</span></div>
         <div class="seg" role="group" aria-label="Pick partners by">
           <button id="modeMix" aria-pressed="true">Rotate</button><button id="modeWeight" aria-pressed="false">Weight</button>
@@ -406,7 +410,7 @@
   function defaults() {
     const sample = [['Marcus', 126], ['Jaylen', 132], ['Tony', 132], ['Eli', 138], ['Diego', 145], ['Sam', 145], ['Owen', 152], ['Caleb', 160], ['Ray', 170]];
     return {
-      settings: { roundSec: 120, restSec: 30, rounds: 6, mode: 'mix', sound: true, alerts: 'both', roasts: true },
+      settings: { roundSec: 120, restSec: 30, rounds: 6, mode: 'mix', matching: true, sound: true, alerts: 'both', roasts: true },
       wrestlers: sample.map(([n, w]) => mkWrestler(n, w)),
       sample: true, round: 0, phase: 'ready', remaining: 120000, phaseTotal: 120000,
       current: null, lineup: null
@@ -420,6 +424,8 @@
   let S = load() || defaults();
   if (!S.settings.alerts) S.settings.alerts = 'both';
   if (S.settings.roasts === undefined) S.settings.roasts = true;
+  if (S.settings.matching === undefined) S.settings.matching = true;
+  const matching = () => S.settings.matching !== false;
   let running = false, endAt = 0, lastWhole = null, wakeLock = null;
 
   const byId = (id) => S.wrestlers.find(w => w.id === id);
@@ -494,8 +500,8 @@
     for (let k = 0; k < n; k++) { r++; const w = restOrder(act)[0]; w.sits++; w.lastSat = r; out.push(w.id); }
     return out;
   }
-  function ensureLineup() { if (!S.lineup && S.phase !== 'wrestle') S.lineup = buildLineup(); }
-  function rosterChanged() { if (S.phase !== 'wrestle') S.lineup = buildLineup(); save(); render(); }
+  function ensureLineup() { if (matching() && !S.lineup && S.phase !== 'wrestle') S.lineup = buildLineup(); }
+  function rosterChanged() { if (S.phase !== 'wrestle') S.lineup = matching() ? buildLineup() : null; save(); render(); }
 
   /* ---------- Sound ---------- */
   let ctx = null, out = null;
@@ -566,7 +572,7 @@
       buzz([500, 150, 500]);
       const d = useHorn() ? 1350 : 0;
       if (done) { say('Time! That’s practice. Nice work.', d); return; }
-      let msg = 'Time! Switch partners.';
+      let msg = matching() ? 'Time! Switch partners.' : 'Time! Take a break.';
       if (S.lineup && S.lineup.bench.length && S.lineup.pairs.length) msg += ' ' + listNames(S.lineup.bench) + (S.lineup.bench.length > 1 ? ' rest.' : ' rests.');
       say(msg, d);
     },
@@ -582,15 +588,18 @@
   function pause() { if (!running) return; S.remaining = Math.max(0, endAt - Date.now()); running = false; save(); render(); }
   function beginRoundQuiet() { beginRound(true); }
   function beginRound(quiet) {
-    ensureLineup();
-    if (!S.lineup || S.lineup.pairs.length === 0) { showNotice('Add at least two wrestlers who are here today to start.'); running = false; render(); return; }
+    if (matching()) {
+      ensureLineup();
+      if (!S.lineup || S.lineup.pairs.length === 0) { showNotice('Add at least two wrestlers who are here today to start, or turn off Pair partners to just run the clock.'); running = false; render(); return; }
+    }
     $('roastCard').hidden = true;
-    commit(S.lineup); startPhase('wrestle', S.settings.roundSec); if (!quiet) alerts.roundStart(); save();
+    if (matching()) commit(S.lineup); else { S.round++; S.current = null; S.lineup = null; }
+    startPhase('wrestle', S.settings.roundSec); if (!quiet) alerts.roundStart(); save();
   }
   function phaseEnd() {
     if (S.phase === 'wrestle') {
       if (S.settings.rounds && S.round >= S.settings.rounds) { alerts.roundEnd(true); running = false; S.phase = 'done'; S.remaining = 0; S.lineup = null; save(); render(); autoRoast(); return; }
-      S.lineup = buildLineup();
+      S.lineup = matching() ? buildLineup() : null;
       if (S.settings.restSec > 0) { alerts.roundEnd(false); startPhase('rest', S.settings.restSec); autoRoast(); }
       else { if (useHorn()) horn(); buzz([500, 150, 500]); setTimeout(() => { if (S.phase === 'wrestle') alerts.roundStart(); }, 1500); beginRoundQuiet(); }
       save();
@@ -621,7 +630,8 @@
   function renderClock() {
     const p = PHASES[S.phase], root = document.documentElement.style;
     root.setProperty('--phase', p.color); root.setProperty('--phase-soft', p.soft); root.setProperty('--on-phase', S.phase === 'wrestle' || S.phase === 'rest' ? '#FFFFFF' : '#0E131D');
-    $('phasePill').textContent = running || S.phase === 'ready' || S.phase === 'done' ? p.label : 'Paused';
+    const label = S.phase === 'rest' && !matching() ? 'Break' : p.label;
+    $('phasePill').textContent = running || S.phase === 'ready' || S.phase === 'done' ? label : 'Paused';
     let secs = S.phase === 'ready' ? S.settings.roundSec : S.remaining / 1000;
     $('digits').textContent = S.phase === 'done' ? 'DONE' : fmt(secs);
     $('digits').classList.toggle('flash', running && S.phase === 'wrestle' && S.remaining <= 10000);
@@ -641,6 +651,15 @@
     return '<div class="corner"><span class="band ' + band + '" aria-hidden="true"></span><span class="nm">' + esc(w.name) + '</span>' + (w.weight != null ? '<span class="wt">' + w.weight + '</span>' : '') + '</div>';
   }
   function renderLineup() {
+    // With pairing off, the section only stays up to hold the roast button.
+    const on = matching();
+    $('lineupSection').hidden = !on && !S.settings.roasts;
+    $('mats').hidden = !on;
+    if (!on) {
+      $('lineupEyebrow').textContent = 'Clock only';
+      $('lineupTitle').textContent = 'Pairing is off';
+      $('shuffleBtn').hidden = true; $('rotation').hidden = true; return;
+    }
     ensureLineup();
     const lu = S.phase === 'wrestle' ? S.current : S.phase === 'done' ? null : S.lineup;
     const eb = S.phase === 'wrestle' ? 'On the mat now · round ' + S.round : S.phase === 'rest' ? 'Find your partner · round ' + (S.round + 1) : S.phase === 'done' ? 'Practice complete' : 'Round ' + (S.round + 1) + ' matchups';
@@ -650,6 +669,10 @@
     const mats = $('mats');
     if (S.phase === 'done') {
       mats.innerHTML = '<div class="empty">' + S.round + ' rounds wrestled. Press “Start again” to run another set with fresh rest counts.</div>';
+      $('rotation').hidden = true; return;
+    }
+    if (S.phase === 'wrestle' && !lu) {
+      mats.innerHTML = '<div class="empty">Partners will be picked for the next round.</div>';
       $('rotation').hidden = true; return;
     }
     if (!lu || (lu.pairs.length === 0 && lu.bench.length === 0)) {
@@ -692,6 +715,8 @@
     $('roundsOut').textContent = s.rounds ? s.rounds : 'No limit';
     $('modeMix').setAttribute('aria-pressed', s.mode === 'mix');
     $('modeWeight').setAttribute('aria-pressed', s.mode === 'weight');
+    $('matchToggle').checked = matching();
+    $('modeRow').hidden = !matching();
     $('soundToggle').checked = !!s.sound;
     $('roastToggle').checked = !!s.roasts;
     document.body.classList.toggle('no-roasts', !s.roasts);
@@ -1069,14 +1094,14 @@
 
   /* ---------- Events ---------- */
   $('roastBtn').addEventListener('click', () => roast());
-  $('roastToggle').addEventListener('change', (e) => { S.settings.roasts = e.target.checked; if (!e.target.checked) $('roastCard').hidden = true; save(); renderSettings(); });
+  $('roastToggle').addEventListener('change', (e) => { S.settings.roasts = e.target.checked; if (!e.target.checked) $('roastCard').hidden = true; save(); render(); });
   $('roastAgain').addEventListener('click', () => roast(lastRoastId));
   $('roastNext').addEventListener('click', () => roast());
   $('roastClose').addEventListener('click', () => { $('roastCard').hidden = true; try { speechSynthesis.cancel(); } catch (e) { } });
   function resetPractice() {
     running = false;
     for (const w of S.wrestlers) { w.sits = 0; w.lastSat = -1; w.partners = {}; w.lastPartner = null; w.bouts = 0; w.order = Math.random(); }
-    S.round = 0; S.phase = 'ready'; S.current = null; S.lineup = buildLineup();
+    S.round = 0; S.phase = 'ready'; S.current = null; S.lineup = matching() ? buildLineup() : null;
     S.remaining = S.settings.roundSec * 1000; S.phaseTotal = S.remaining; save(); render();
   }
   $('mainBtn').addEventListener('click', () => {
@@ -1092,6 +1117,7 @@
     else if (S.phase === 'wrestle' || S.phase === 'rest') { if (!running) running = true; S.remaining = 0; phaseEnd(); }
   });
   $('restartBtn').addEventListener('click', () => { S.remaining = S.phaseTotal; lastWhole = null; if (running) endAt = Date.now() + S.remaining; save(); render(); });
+  $('matchToggle').addEventListener('change', (e) => { S.settings.matching = e.target.checked; rosterChanged(); });
   $('shuffleBtn').addEventListener('click', () => { S.lineup = buildLineup(); save(); renderLineup(); });
 
   let armed = null;
@@ -1127,7 +1153,7 @@
     audio();
     if (!S.settings.sound) { showNotice('Sounds are off. Turn them on to test.'); return; }
     if (useHorn()) horn();
-    say('Time! Switch partners.', useHorn() ? 1350 : 0);
+    say(matching() ? 'Time! Switch partners.' : 'Time! Take a break.', useHorn() ? 1350 : 0);
     buzz([500, 150, 500]);
   });
 
